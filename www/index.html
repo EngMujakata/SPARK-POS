@@ -87,7 +87,7 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
 <script>
 'use strict';
 /* CLOUD ENDPOINT: the deployed Apps Script /exec URL. The key below is only a light gate: real security is the sign-in token the server issues after a correct username and password. */
-const API_URL='https://script.google.com/macros/s/AKfycbx2aj_p1o0tP3BFAMDoiGz66Wy896zVE4XWqUqlp5VQ6vhwTLtJ0cuL4o851E6OmdQ/exec',API_KEY='132789ea664124be76435c6a3105e6e3c183871113464ef6';
+const API_URL='https://script.google.com/macros/s/AKfycbytmTUBBCroEuJEQOl3gnlm5WVtO4Fmf_EUnfDs3jWBGSidXYWKeIEFFxC57xdrJYI5/exec',API_KEY='132789ea664124be76435c6a3105e6e3c183871113464ef6';
 const CLOUD=/^https?:\/\//.test(API_URL),ROWS=500; // Hard cap: no request may contain more than 500 rows
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const CAP=window.Capacitor,NATIVE=!!CAP&&(typeof CAP.isNativePlatform==='function'?CAP.isNativePlatform():!!CAP.isNative),NP=n=>(CAP&&CAP.Plugins&&CAP.Plugins[n])||null;
