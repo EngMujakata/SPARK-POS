@@ -1,0 +1,8 @@
+{
+  "appId": "com.electrify.sparkpos",
+  "appName": "spark POS",
+  "webDir": "www",
+  "backgroundColor": "#f1f2ef",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false }
+}
