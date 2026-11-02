@@ -34,6 +34,8 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
 .hd{display:flex;justify-content:space-between;align-items:center;gap:8px}[hidden]{display:none!important}
 #onlineModal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:55;padding:14px}#onlineModal.on{display:flex}
 .onb{background:#fff4e0;border:2px solid #e0a100;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13px}.onb b{color:#8a5a00}
+
+/* accounting additions */
 .acc-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px}
 .acc-card h3{margin:0;font-size:15px}.acc-card .num{font-size:22px;font-weight:800}.acc-card .red{color:var(--red)}
 .acc-pbar{height:10px;border-radius:99px;background:#e6e8e3;overflow:hidden;margin-top:4px}
@@ -45,6 +47,7 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
 .acc-days.over{background:#b8321a;color:#fff}
 .acc-days.soon{background:#e0a100;color:#000}
 .acc-search{display:flex;gap:8px;margin-bottom:10px}.acc-search input{flex:1}
+
 @media(max-width:600px){
  body{font-size:14px}header{padding:8px 10px;gap:7px}header b{font-size:16px}
  main{padding:8px}nav{padding:6px;gap:3px;position:sticky;top:0;z-index:8}
@@ -81,8 +84,7 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
 <button class="btn" style="margin-top:10px">Save item</button></form></div>
 <div class="panel"><b>Import / export products (CSV)</b><p class="mut">Download the template with sample raw materials and sales items, edit it in Excel, then import. Product IDs/codes remain stable; importing an existing code updates that product.</p><button class="btn gh" id="csvTemplate" type="button">Download CSV template</button><button class="btn alt" id="csvExport" type="button" style="margin-left:6px">Export current products</button><label>Import CSV file</label><input id="csvFile" type="file" accept=".csv,text/csv"><div id="csvStatus" class="mut"></div></div><div class="panel"><b>Receive stock</b><form id="fRecv"><div class="fg"><div><label>Item (type to search)</label><div id="recvHost"></div></div><div><label id="rqL2">Quantity (negative number corrects stock)</label><input name="q" type="number" step="any" required></div></div><button class="btn alt" style="margin-top:8px">Add to stock</button></form></div>
 <div class="panel"><div class="hd"><b>Stock on hand</b><button class="btn gh" id="stkS" title="Search stock" style="padding:6px 10px"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button></div><input id="stkQ" placeholder="Search stock..." hidden style="margin-top:8px"><div id="stockList"></div></div></section>
-
- <section id="v-recipes"><div class="panel"><label>Sales item (type to search)</label><div class="rsel"><div id="rSelHost" style="flex:1"></div><button class="btn alt" id="rNew" title="Create a new sales item">+</button></div><div id="rBody"></div></div></section>
+<section id="v-recipes"><div class="panel"><label>Sales item (type to search)</label><div class="rsel"><div id="rSelHost" style="flex:1"></div><button class="btn alt" id="rNew" title="Create a new sales item">+</button></div><div id="rBody"></div></div></section>
 <section id="v-shift"><div class="panel" id="shiftBox"></div></section>
 <section id="v-settings"><div class="panel"><form id="fSet"><div class="fg"><div><label>Business name</label><input name="biz"></div><div><label>1 USD = ZiG</label><input name="rate" type="number" step="any" min="0"></div>
 <div><label>Tax mode</label><select name="vat"><option value="0">Tax off</option><option value="add">Add tax on top of price</option><option value="included">Tax included in displayed price</option></select></div><div><label>VAT / tax %</label><input name="vatp" type="number" step="any" min="0"></div>
@@ -113,15 +115,16 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
 
 <script>
 'use strict';
+/* CLOUD ENDPOINT — the deployed Apps Script /exec URL of the POS. The key below is only a light gate: real security is the sign-in token the server issues after a correct username and password. */
 const API_URL='https://script.google.com/macros/s/AKfycbytmTUBBCroEuJEQOl3gnlm5WVtO4Fmf_EUnfDs3jWBGSidXYWKeIEFFxC57xdrJYI5/exec',API_KEY='132789ea664124be76435c6a3105e6e3c183871113464ef6';
-const CLOUD=/^https?:\/\//.test(API_URL),ROWS=500;
+const CLOUD=/^https?:\/\//.test(API_URL),ROWS=500; // Hard cap: no request may contain more than 500 rows
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const CAP=window.Capacitor,NATIVE=!!CAP&&(typeof CAP.isNativePlatform==='function'?CAP.isNativePlatform():!!CAP.isNative),NP=n=>(CAP&&CAP.Plugins&&CAP.Plugins[n])||null;
+/* spark POS core. Local-first (IndexedDB) with an idempotent outbox. spark powered by Electrify Technologies */
 const $=s=>document.querySelector(s),uid=()=>crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:r&3|8).toString(16)}),usd=n=>'$'+(+n||0).toFixed(2),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const UNITS={kg:['g',1000],g:['g',1],l:['ml',1000],ml:['ml',1],each:['each',1]};
-const METHODS={cash:'Hard cash',swipe:'Card swipe',bank:'Bank transfer',mobile:'Mobile money'};
-const PM={...METHODS,online:'Paid online',credit:'Credit (invoice)'};
-let me=null,users=[],PP='80mm',db,items=[],moves=[],sales=[],shifts=[],shift=null,S={biz:'spark',rate:32,vat:0,vatp:15,paper:'80mm',logo:'',posPrinter:'',kitPrinter:''},stock={},cart=[],busy=false,rec=[],OC=null;
+const UNITS={kg:['g',1000],g:['g',1],l:['ml',1000],ml:['ml',1],each:['each',1]},METHODS={cash:'Hard cash',swipe:'Card swipe',bank:'Bank transfer',mobile:'Mobile money'};
+const PM={...METHODS,online:'Paid online',credit:'Credit (invoice)'}; // METHODS = money counted at cash-up; PM adds online + credit (never counted in the drawer)
+let me=null,users=[],PP='80mm',db,items=[],moves=[],sales=[],shifts=[],shift=null,S={biz:'spark',rate:32,vat:0,vatp:15,paper:'80mm',logo:'',posPrinter:'',kitPrinter:''},stock={},cart=[],busy=false,rec=[],OC=null; // OC = online order currently loaded in the cart
 let PRN={list:[],pos:'',kit:''},DEV=null,AUTH=null,SY={c:{},seq:0},SB=null,pendRows=0,rejList=[],syncing=false,polling=false,lastSynced=false;
 let NET='ONLINE',tryCount=0;const MAX_TRIES=3,TRY_TIMEOUT=8000;
 function setNet(s){ if(NET===s) return; NET=s; renderNetBadge(); }
@@ -164,7 +167,7 @@ async function load(){[items,moves,sales,users]=await Promise.all([all('items'),
  const mt=await all('meta'),M=k=>(mt.find(x=>x.k===k)||{}).v;DEV=M('device')||null;AUTH=M('auth')||null;SY=M('sync')||{c:{},seq:0};SB=M('stockBase')||null;const st=mt.find(x=>x.k==='settings');if(st)S={...S,...st.v};const pr=M('printers');if(pr)PRN={list:[],pos:'',kit:'',...pr};if(!PRN.migrated&&!NATIVE){PRN={...PRN,pos:PRN.pos||S.posPrinter||'',kit:PRN.kit||S.kitPrinter||'',migrated:true};write([['meta',{k:'printers',v:PRN},false]]).catch(()=>{})}
  shift=DEV?shifts.find(s=>s.status==='open'&&s.dev===DEV.name)||null:null;
  const ob=await all('outbox'),pend=ob.filter(o=>o.status==='pending');pendRows=pend.reduce((a,o)=>a+itemsOf(o).length,0);rejList=ob.filter(o=>o.status==='rejected');
- stock={};if(SB){Object.assign(stock,SB.q);pend.forEach(o=>itemsOf(o).forEach(it=>{if(it.store==='moves')stock[it.data.item]=(stock[it.data.item]||0)+(+it.data.qty||0)}))}else moves.forEach(m=>stock[m.item]=(stock[m.item]||0)+m.qty)
+ stock={};if(SB){Object.assign(stock,SB.q);pend.forEach(o=>itemsOf(o).forEach(it=>{if(it.store==='moves')stock[it.data.item]=(stock[it.data.item]||0)+(+it.data.qty||0)}))}else moves.forEach(m=>stock[m.item]=(stock[m.item]||0)+m.qty)}
  const actor=()=>me?(me.name||me.username||'Unknown user'):'Unidentified (offline setup)';
 const auditMove=(item,action,reason,prevQty,newQty,extra={})=>({id:uid(),item:item?.id||'',qty:0,reason,action,actor:actor(),prevQty:prevQty==null?'':prevQty,newQty:newQty==null?'':newQty,productName:item?.name||extra.productName||'',at:Date.now(),...extra});
 const by=id=>items.find(i=>i.id===id),unitOf=i=>i.base==='each'?'':i.base,costOf=i=>i.recipe&&i.recipe.length?i.recipe.reduce((a,r)=>a+r.qty*(by(r.id)?.cost||0),0):(i.cost||0);
@@ -175,14 +178,14 @@ const avail=i=>{if(hasRec(i)){const n=Math.min(...i.recipe.map(r=>r.qty>0?Math.f
 const fits=id=>{const need={};cart.concat([{id,qty:1}]).forEach(l=>lineParts(l).forEach(p=>need[p.id]=(need[p.id]||0)+p.qty));return Object.keys(need).every(k=>(stock[k]||0)+1e-9>=need[k])};
 const cartHasStock=()=>{const need={};cart.forEach(l=>lineParts(l).forEach(p=>need[p.id]=(need[p.id]||0)+p.qty));return Object.keys(need).every(k=>(stock[k]||0)+1e-9>=need[k]&&by(k)?.active!==false)};
 const lineParts=l=>{const out=[],add=(it,q)=>{if(!it)return;it.recipe&&it.recipe.length?it.recipe.forEach(r=>out.push({id:r.id,qty:r.qty*q})):out.push({id:it.id,qty:q})};add(by(l.id),l.qty);add(by(l.starch),l.qty);(l.extras||[]).forEach(e=>add(by(e),l.qty));return out};
-const linePrice=l=>l.op!=null?l.op*l.qty:((by(l.id)?.price||0)+(l.extras||[]).reduce((a,e)=>a+(by(e)?.price||0),0))*l.qty;
+const linePrice=l=>l.op!=null?l.op*l.qty:((by(l.id)?.price||0)+(l.extras||[]).reduce((a,e)=>a+(by(e)?.price||0),0))*l.qty; // l.op = unit price the customer paid online
 const totals=()=>{if(OC)return{sub:OC.total-OC.fee,vat:0,fee:OC.fee,total:OC.total};
  const priceTotal=cart.reduce((a,l)=>a+linePrice(l),0),rate=Math.max(0,+S.vatp||0)/100,mode=String(S.vat||'0');let sub=priceTotal,vat=0,total=priceTotal;
  if(mode==='add'||mode==='1'){vat=priceTotal*rate;total=priceTotal+vat}
  else if(mode==='included'){total=priceTotal;vat=rate?priceTotal*rate/(1+rate):0;sub=total-vat}
  return{sub,vat,fee:0,total}};
 
- function show(v){if(me&&me.role!=='admin'&&!['sell','shift'].includes(v))v='sell';document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));({sell:rSell,stock:rStock,recipes:()=>rRecipes(),shift:rShift,settings:rSet,reports:rReports,users:rUsers,accounting:()=>accRender()})[v]()}
+function show(v){if(me&&me.role!=='admin'&&!['sell','shift'].includes(v))v='sell';document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));({sell:rSell,stock:rStock,recipes:()=>rRecipes(),shift:rShift,settings:rSet,reports:rReports,users:rUsers,accounting:()=>accRender()})[v]()}
 $('#nav').onclick=e=>{if(e.target.dataset.v)show(e.target.dataset.v)};
 const cur=()=>document.querySelector('section.on').id.slice(2);
 function head(){$('#biz').textContent=S.biz;document.title=S.biz+' POS';const l=$('#logo');l.hidden=!S.logo;if(S.logo)l.src=S.logo}
@@ -229,6 +232,7 @@ async function checkout(method,cur){if(busy)return;busy=true;$('#go').disabled=t
  }catch(e){toast('Could not save sale: '+e.message)}finally{busy=false}}
 const cur_=()=>document.querySelector('section.on').id.slice(2);
 
+/* ---------- credit-sale → accounting invoice hook ---------- */
 async function accPostCreditInvoice(sale){
  if(!CLOUD||!AUTH||!navigator.onLine||!sale.credit)return;
  const cust=await accCall({sub:'saveCustomer',name:sale.credit.name,phone:sale.credit.phone});
@@ -237,185 +241,8 @@ async function accPostCreditInvoice(sale){
  if(!inv.ok)throw new Error(inv.error||'Could not create credit invoice');
 }
 
-/* ======================= ACCOUNTING FRONTEND ======================= */
-let accTab='overview',accFrom=Date.now()-7*864e5,accTo=Date.now();
-async function accCall(body){
- const r=await post({action:'accounting',...body});
- if(!r||r.ok!==true)throw new Error((r&&r.error)||'Accounting request failed');
- return r;
-}
-function accRangePicker(){
- const end=new Date(accTo).toISOString().slice(0,10),start=new Date(accFrom).toISOString().slice(0,10);
- return `<div class="acc-search"><input type="date" id="accFrom" value="${start}" aria-label="From"><input type="date" id="accTo" value="${end}" aria-label="To"><button class="btn gh" id="accApply">Apply</button></div>`;
-}
-function accBindRange(){
- const a=$('#accFrom'),b=$('#accTo'),btn=$('#accApply');if(!a||!btn)return;
- btn.onclick=()=>{accFrom=new Date(a.value+'T00:00:00').getTime();accTo=new Date(b.value+'T23:59:59.999').getTime();accRender()};
-}
-async function accOverview(){
- $('#accBody').innerHTML='<div class="acc-row-grid" id="accKpi"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>'+accRangePicker()+'<div class="panel"><b>Recent activity</b><div class="mut">Pick a section above for full lists.</div></div>';
- accBindRange();
- try{
-  const r=await accCall({sub:'overview',from:accFrom,to:accTo});
-  $('#accKpi').innerHTML=`
-   <div class="acc-card"><h3>Creditors (we owe)</h3><span class="num">${usd(r.creditors.total)}</span><small class="mut">${r.creditors.count} open${r.creditors.overdue?` · <b class="red">${usd(r.creditors.overdue)} overdue</b>`:''}</small></div>
-   <div class="acc-card"><h3>Debtors (owed to us)</h3><span class="num">${usd(r.debtors.total)}</span><small class="mut">${r.debtors.count} open${r.debtors.overdue?` · <b class="red">${usd(r.debtors.overdue)} overdue</b>`:''}</small></div>
-   <div class="acc-card"><h3>Expenses (this range)</h3><span class="num">${usd(r.expenses.total)}</span><small class="mut">${r.expenses.count} entries</small></div>
-   <div class="acc-card"><h3>Quick links</h3><button class="btn gh" data-acc-go="ledger">Open profit report</button></div>`;
-  $('#accBody').addEventListener('click',e=>{const g=e.target.closest('[data-acc-go]');if(g){accTab=g.dataset.accGo;accRender()}},{once:true});
- }catch(e){$('#accKpi').innerHTML='<div class="acc-card red">'+esc(e.message)+'</div>'}
-}
-function accStatusPill(item){
- if(item.status==='paid')return '<span class="acc-days">Paid</span>';
- if(item.status==='overdue')return '<span class="acc-days over">Overdue by '+Math.abs(item.daysLeft)+' day'+(Math.abs(item.daysLeft)===1?'':'s')+'</span>';
- if(item.daysLeft==null)return '<span class="acc-days">No due date</span>';
- if(item.daysLeft<=3)return '<span class="acc-days soon">'+item.daysLeft+' day'+(item.daysLeft===1?'':'s')+' left</span>';
- return '<span class="acc-days">'+item.daysLeft+' days left</span>';
-}
-function accProgress(item){
- const total=+item.amount||0,paid=+item.paid||0,pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
- const overdue=item.status==='overdue';
- return `<div class="acc-pbar ${overdue?'over':''}"><i style="width:${pct}%"></i></div><small class="mut">Paid ${usd(paid)} of ${usd(total)}</small>`;
-}
-function accPartyCard(item,kind){
- const who=kind==='creditor'?item.supplierName:item.customerName,phone=item.phone||'';
- return `<div class="acc-card"><div class="hd"><b>${esc(who||'(no name)')}</b>${accStatusPill(item)}</div>
-  <small class="mut">${esc(phone)}${item.ref?' · '+esc(item.ref):''}</small>
-  <div>${esc(item.description||'')}</div>
-  ${accProgress(item)}
-  <div class="row" style="padding:4px 0"><span>Outstanding</span><b>${usd(item.outstanding)}</b></div>
-  <div style="display:flex;gap:6px">
-   <button class="btn gh" data-acc-view="${esc(item.id)}" data-kind="${kind}" style="flex:1">View</button>
-   <button class="btn alt" data-acc-pay="${esc(item.id)}" data-kind="${kind}" style="flex:1" ${item.status==='paid'?'disabled':''}>Record payment</button>
-  </div></div>`;
-}
-async function accCreditors(){
- $('#accBody').innerHTML=`<div class="acc-search"><input id="accQ" placeholder="Search creditor name, phone or ref..."><button class="btn" id="accNew">+ New credit purchase</button></div><div class="acc-scroll" id="accList"><div class="sk"></div><div class="sk"></div></div>`;
- const load=async()=>{const q=$('#accQ').value.trim();try{
-  const r=await accCall({sub:'purchases',q,from:0,to:Date.now()});
-  const open=r.purchases.filter(p=>p.status!=='paid');
-  $('#accList').innerHTML=open.length?`<div class="acc-row-grid">${open.slice(0,20).map(p=>accPartyCard(p,'creditor')).join('')}</div>${open.length>20?'<p class="mut">Scroll to see more — refine search to narrow.</p>':''}`:'<p class="mut">No outstanding creditors. Press + to record a new credit purchase.</p>';
- }catch(e){$('#accList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
- $('#accQ').oninput=()=>load();$('#accNew').onclick=()=>accPurchaseModal();
- $('#accList').onclick=e=>{
-  const v=e.target.closest('[data-acc-view]'),p=e.target.closest('[data-acc-pay]');
-  if(v)accViewModal(v.dataset.accView,'creditor');
-  else if(p)accPaymentModal(p.dataset.accPay,'creditor');
- };
- load();
-}
-async function accDebtors(){
- $('#accBody').innerHTML=`<div class="acc-search"><input id="accQ" placeholder="Search debtor name, phone or ref..."><button class="btn" id="accNew">+ New credit invoice</button></div><div class="acc-scroll" id="accList"><div class="sk"></div><div class="sk"></div></div>`;
- const load=async()=>{const q=$('#accQ').value.trim();try{
-  const r=await accCall({sub:'invoices',q,from:0,to:Date.now()});
-  const open=r.invoices.filter(p=>p.status!=='paid');
-  $('#accList').innerHTML=open.length?`<div class="acc-row-grid">${open.slice(0,20).map(p=>accPartyCard(p,'debtor')).join('')}</div>${open.length>20?'<p class="mut">Refine search to narrow.</p>':''}`:'<p class="mut">No outstanding debtors.</p>';
- }catch(e){$('#accList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
- $('#accQ').oninput=()=>load();$('#accNew').onclick=()=>accInvoiceModal();
- $('#accList').onclick=e=>{
-  const v=e.target.closest('[data-acc-view]'),p=e.target.closest('[data-acc-pay]');
-  if(v)accViewModal(v.dataset.accView,'debtor');
-  else if(p)accPaymentModal(p.dataset.accPay,'debtor');
- };
- load();
-}
-async function accViewModal(id,kind){
- try{
-  const r=await accCall(kind==='creditor'?{sub:'purchases',from:0,to:Date.now(),q:''}:{sub:'invoices',from:0,to:Date.now(),q:''});
-  const list=(kind==='creditor'?r.purchases:r.invoices)||[];
-  const item=list.find(x=>x.id===id);if(!item)return;
-  modal(`<h3>${kind==='creditor'?'Purchase':'Invoice'} ${esc(item.ref||item.id)}</h3>
-   <p class="mut">${esc(kind==='creditor'?item.supplierName:item.customerName)} · ${esc(item.phone||'')}</p>
-   <div class="panel">${accProgress(item)}
-   <div class="row"><span>Amount</span><b>${usd(item.amount)}</b></div>
-   <div class="row"><span>Paid</span><b>${usd(item.paid)}</b></div>
-   <div class="row"><span>Outstanding</span><b>${usd(item.outstanding)}</b></div>
-   <div class="row"><span>Due</span><b>${item.dueAt?new Date(item.dueAt).toLocaleDateString():'—'}</b></div>
-   <div class="row"><span>Created</span><b>${new Date(item.at).toLocaleString()}</b></div>
-   </div>
-   <button class="btn" id="accPay" ${item.status==='paid'?'disabled':''}>Record payment</button>`);
-  $('#accPay').onclick=()=>{closeM();accPaymentModal(id,kind)};
- }catch(e){toast(e.message)}
-}
-async function accPaymentModal(id,kind){
- const raw=prompt('How much did you pay?');if(!raw)return;
- const amount=+raw;if(!(amount>0))return toast('Enter a valid amount');
- try{const r=await accCall({sub:'savePayment',kind,partyId:'',refId:id,amount,method:'cash',by:me.name});toast('Payment recorded. Paid '+usd(r.newPaid)+' of '+usd(r.total));accRender()}
- catch(e){toast(e.message)}
-}
-async function accPurchaseModal(){
- const sup=await accCall({sub:'suppliers'});
- modal(`<h3>New credit purchase</h3>
-  <label>Supplier</label><select id="apSup">${sup.suppliers.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}${s.phone?' · '+esc(s.phone):''}</option>`).join('')||'<option value="">No suppliers yet</option>'}</select>
-  <button class="btn gh" id="apSupNew" type="button">+ New supplier</button>
-  <label>Reference (invoice no.)</label><input id="apRef" placeholder="e.g. INV-0925">
-  <label>Description</label><input id="apDesc" placeholder="What did you buy?">
-  <label>Amount (USD)</label><input id="apAmt" type="number" step="any" min="0">
-  <label>Due date</label><input id="apDue" type="date">
-  <button class="btn" id="apSave" style="margin-top:10px;width:100%">Save purchase</button>`);
- const d=new Date();d.setDate(d.getDate()+14);$('#apDue').value=d.toISOString().slice(0,10);
- $('#apSupNew').onclick=()=>accSupplierModal(true);
- $('#apSave').onclick=async()=>{try{await accCall({sub:'savePurchase',supplierId:$('#apSup').value,ref:$('#apRef').value,description:$('#apDesc').value,amount:+$('#apAmt').value,dueAt:new Date($('#apDue').value+'T23:59:59').getTime(),by:me.name});closeM();toast('Purchase saved');accRender()}catch(e){toast(e.message)}};
-}
-async function accInvoiceModal(){
- const cus=await accCall({sub:'customers'});const list=cus.customers||[];
- modal(`<h3>New credit invoice</h3>
-  <label>Customer</label><select id="aiCus">${list.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')||'<option value="">No customers yet</option>'}</select>
-  <button class="btn gh" id="aiNewCus" type="button">+ New customer</button>
-  <label>Reference</label><input id="aiRef" placeholder="e.g. INV-0001">
-  <label>Description</label><input id="aiDesc" placeholder="What was sold on credit?">
-  <label>Amount (USD)</label><input id="aiAmt" type="number" step="any" min="0">
-  <label>Due date</label><input id="aiDue" type="date">
-  <button class="btn" id="aiSave" style="margin-top:10px;width:100%">Save invoice</button>`);
- const d=new Date();d.setDate(d.getDate()+7);$('#aiDue').value=d.toISOString().slice(0,10);
- $('#aiNewCus').onclick=()=>accCustomerModal(true);
- $('#aiSave').onclick=async()=>{try{await accCall({sub:'saveInvoice',customerId:$('#aiCus').value,ref:$('#aiRef').value,description:$('#aiDesc').value,amount:+$('#aiAmt').value,dueAt:new Date($('#aiDue').value+'T23:59:59').getTime(),by:me.name});closeM();toast('Invoice saved');accRender()}catch(e){toast(e.message)}};
-}
-async function accSupplierModal(thenBack){
- modal(`<h3>New supplier</h3><label>Name</label><input id="asN"><label>Phone</label><input id="asP" inputmode="tel"><label>Address</label><input id="asA"><button class="btn" id="asS" style="width:100%;margin-top:10px">Save supplier</button>`);
- $('#asS').onclick=async()=>{try{const r=await accCall({sub:'saveSupplier',name:$('#asN').value,phone:$('#asP').value,address:$('#asA').value});toast('Supplier saved');if(thenBack){const sup=await accCall({sub:'suppliers'});const sel=$('#apSup');if(sel){sel.innerHTML=sup.suppliers.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}${s.phone?' · '+esc(s.phone):''}</option>`).join('');sel.value=r.supplier.id}}else{closeM();accRender()}}catch(e){toast(e.message)}};
-}
-async function accCustomerModal(thenBack){
- modal(`<h3>New customer</h3><label>Name</label><input id="acN"><label>Phone</label><input id="acP" inputmode="tel"><label>Address</label><input id="acA"><button class="btn" id="acS" style="width:100%;margin-top:10px">Save customer</button>`);
- $('#acS').onclick=async()=>{try{const r=await accCall({sub:'saveCustomer',name:$('#acN').value,phone:$('#acP').value,address:$('#acA').value});toast('Customer saved');if(thenBack){const cus=await accCall({sub:'customers'});const sel=$('#aiCus');if(sel){sel.innerHTML=cus.customers.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('');sel.value=r.customer.id}}else{closeM();accRender()}}catch(e){toast(e.message)}};
-}
-async function accLedger(){
- $('#accBody').innerHTML=`<div class="panel"><b>Profit report</b>${accRangePicker()}<div id="accReport"><div class="sk"></div></div></div>
-  <div class="panel"><b>Expenses</b><div class="acc-search"><input id="accExpQ" placeholder="Search description or category..."><button class="btn" id="accExpNew">+ Add expense</button></div><div class="acc-scroll" id="accExpList"><div class="sk"></div></div></div>`;
- accBindRange();
- const load=async()=>{try{
-  const r=await accCall({sub:'profitReport',from:accFrom,to:accTo});
-  const t=r.totals;
-  $('#accReport').innerHTML=`
-   <div class="kpi"><div>Orders<b>${t.orders}</b></div><div>Revenue<b>${usd(t.revenue)}</b></div><div>Cost<b>${usd(t.cost)}</b></div><div>Gross profit<b>${usd(t.grossProfit)}</b></div><div>Expenses<b>${usd(t.expenses)}</b></div><div>Net profit<b>${usd(t.netProfit)}</b></div></div>
-   <div class="acc-row-grid">${r.expenseByCategory.map(c=>`<div class="acc-card"><h3>${esc(c.category)}</h3><span class="num">${usd(c.amount)}</span></div>`).join('')||'<div class="acc-card mut">No expenses in this range.</div>'}</div>
-   <button class="btn alt" id="accExport" style="margin-top:10px">Export profit summary (CSV)</button>`;
-  $('#accExport').onclick=async()=>{try{const ex=await accCall({sub:'exportProfit',from:accFrom,to:accTo});downloadText(ex.filename,ex.csv);toast('Export ready')}catch(e){toast(e.message)}};
- }catch(e){$('#accReport').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
- const loadExp=async()=>{const q=$('#accExpQ').value.trim();try{
-  const r=await accCall({sub:'expenses',from:accFrom,to:accTo,q});
-  $('#accExpList').innerHTML=r.expenses.length?`<div class="acc-row-grid">${r.expenses.slice(0,20).map(e=>`<div class="acc-card"><div class="hd"><b>${esc(e.category)}</b><small class="mut">${new Date(e.at).toLocaleDateString()}</small></div><div>${esc(e.description)}</div><div class="row"><span>Amount</span><b>${usd(e.amount)}</b></div><button class="btn gh" data-acc-exp-del="${esc(e.id)}">Delete</button></div>`).join('')}</div>`:'<p class="mut">No expenses in this range.</p>';
-  $('#accExpList').onclick=async ev=>{const b=ev.target.closest('[data-acc-exp-del]');if(!b)return;if(!confirm('Delete this expense?'))return;try{await accCall({sub:'deleteExpense',id:b.dataset.accExpDel});toast('Deleted');load();loadExp()}catch(e){toast(e.message)}};
- }catch(e){$('#accExpList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
- $('#accExpQ').oninput=()=>loadExp();
- $('#accExpNew').onclick=()=>accExpenseModal();
- await Promise.all([load(),loadExp()]);
-}
-async function accExpenseModal(){
- modal(`<h3>Add expense</h3><label>Category</label><input id="aeC" value="General"><label>Description</label><input id="aeD"><label>Amount (USD)</label><input id="aeA" type="number" step="any" min="0"><label>Date</label><input id="aeT" type="date" value="${new Date().toISOString().slice(0,10)}"><button class="btn" id="aeS" style="margin-top:10px;width:100%">Save expense</button>`);
- $('#aeS').onclick=async()=>{try{await accCall({sub:'saveExpense',category:$('#aeC').value,description:$('#aeD').value,amount:+$('#aeA').value,at:new Date($('#aeT').value+'T12:00:00').getTime(),by:me.name});closeM();toast('Expense added');accLedger()}catch(e){toast(e.message)}};
-}
-function accRender(){
- if(!me||me.role!=='admin'){$('#accBody').innerHTML='<p class="mut">Accounting is admin only.</p>';return}
- document.querySelectorAll('#accTabs button').forEach(b=>b.classList.toggle('on',b.dataset.at===accTab));
- if(accTab==='overview')return accOverview();
- if(accTab==='creditors')return accCreditors();
- if(accTab==='debtors')return accDebtors();
- if(accTab==='ledger')return accLedger();
-}
-$('#accTabs').onclick=e=>{if(e.target.dataset.at){accTab=e.target.dataset.at;accRender()}};
-
- const PRINT_RETRY_MS=15000;
+const PRINT_ACK_WAIT=4000;
+const PRINT_RETRY_MS=15000;
 const page=()=>PP==='A4'?'@page{size:A4;margin:15mm}body{width:100%}':PP==='58mm'?'@page{size:58mm auto;margin:0}body{width:50mm;margin:4mm}':'@page{size:80mm auto;margin:0}body{width:72mm;margin:4mm}';
 const doc=b=>`<!doctype html><meta charset=utf-8><style>${page()}body{font:12px/1.35 monospace;color:#000}.r{display:flex;justify-content:space-between}hr{border:0;border-top:1px dashed #000}.c{text-align:center}img{max-height:50px}.tg{border:2px solid #000;padding:3px;margin:4px 0;text-align:center;font-weight:bold}</style>${b}`;
 const onlineHtml=s=>s.online?`<div class=tg>*** ONLINE ORDER ***<br>${s.online.type==='delivery'?'DELIVERY':'TAKE AWAY'} ${esc(s.online.orderId)}</div><div>${esc(s.online.name)} ${esc(s.online.phone)}</div>${s.online.address?`<div>${esc(s.online.address)}</div>`:''}${s.online.notes?`<div><b>Note:</b> ${esc(s.online.notes)}</div>`:''}`:'';
@@ -585,7 +412,7 @@ async function saveFile(name,text){const fs=NP('Filesystem'),sh=NP('Share');
  const r=await fs.writeFile({path:name,data:text,directory:'CACHE',encoding:'utf8'});
  await sh.share({title:name,url:r.uri,dialogTitle:'Save or send '+name})}
 
- const HINT={raw:'Ingredients you buy and count, like rolls or patties. Not sold on their own.',sales:'Made from a recipe. After you save, you go straight to Recipes & cost to add its ingredients and set its price.',ready:'Bought ready to sell, like a bottled drink. You count its stock yourself.'};
+const HINT={raw:'Ingredients you buy and count, like rolls or patties. Not sold on their own.',sales:'Made from a recipe. After you save, you go straight to Recipes & cost to add its ingredients and set its price.',ready:'Bought ready to sell, like a bottled drink. You count its stock yourself.'};
 function fType(){const f=$('#fItem'),t=f.elements.type.value;f.querySelectorAll('[data-s]').forEach(d=>d.hidden=!d.dataset.s.split(',').includes(t));$('#tHint').textContent=HINT[t]}
 $('#fItem').elements.type.onchange=fType;fType();
 $('#fItem').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target)),id=uid(),raw=f.type==='raw',ready=f.type==='ready',unit=raw?f.unit:'each',[base,k]=UNITS[unit];
@@ -718,8 +545,7 @@ function devModal(){modal(`<h3>Name this PC</h3><p class="mut">Give each till a 
  $('#ds').onclick=async()=>{const name=$('#dn').value.trim().toUpperCase();if(!/^[A-Z0-9_-]{1,12}$/.test(name))return $('#de').textContent='Use 1-12 letters, numbers or dash.';const d={id:uid(),name};
   try{if(CLOUD&&navigator.onLine&&AUTH)await post({action:'device',device:d})}catch(e){if(e.server)return $('#de').textContent=e.message}
   await write([['meta',{k:'device',v:d},false]]);closeM();await load();rSell();toast('This PC is '+name)}}
-
- function renderNetBadge(){
+function renderNetBadge(){
  const n=$('#net');let txt='',off=false;
  if(!CLOUD){txt='Local only: cloud URL not set'}
  else if(NET==='OFFLINE'){txt='Offline'+(pendRows?' — '+pendRows+' waiting':'')+' · Retry'}
@@ -921,6 +747,8 @@ function editItem(id){const i=by(id);if(!i)return;const raw=i.type==='raw',u=i.u
 async function archiveItem(id){const i=by(id);if(!i)return;modal(`<h3>Archive ${esc(i.name)}?</h3><p>This hides the product from new sales but keeps past sales, recipes, stock movements and audit history. It is safer than permanently deleting a product that may have been used.</p><button class="btn" id="confirmArchive" style="width:100%">Archive product</button><button class="btn gh" id="cancelArchive" style="width:100%;margin-top:8px">Cancel</button>`);$('#cancelArchive').onclick=closeM;$('#confirmArchive').onclick=async()=>{try{await save([['items',{...i,active:false,updatedBy:actor(),updatedAt:Date.now()}],['moves',auditMove(i,'PRODUCT_ARCHIVED','product-archive',stock[i.id]||0,stock[i.id]||0)]]);closeM();await load();rStock();toast('Product archived; history preserved')}catch(e){toast(e.message)}}}
 
 let rtab='ov';const inR=s=>!(+$('#rg').value)||s.at>Date.now()-$('#rg').value*864e5;
+function rangeStart(){const n=Number($('#rg')?.value||7);return n===0?0:Date.now()-n*864e5}
+function rangeEnd(){return Date.now()}
 function rReports(){loadRep(rtab)}
 $('#rt').onclick=e=>{if(e.target.dataset.t){rtab=e.target.dataset.t;rReports()}};
 $('#rg').onchange=rReports;
@@ -946,6 +774,11 @@ async function loadRep(t){const b=$('#rb');b.innerHTML='<div class="sk"></div><d
   b.innerHTML=`<div class="kpi"><div>Cashiers<b>${rows.length}</b></div><div>Orders<b>${ss.length}</b></div><div>Top cashier<b>${rows[0]?esc(rows[0][0]):'—'}</b></div></div><div class="panel"><b>By cashier</b>${rows.map(([n,v])=>`<div class="row"><span><b>${esc(n)}</b><br><small class="mut">${v.n} orders · ${v.sh.size} shift${v.sh.size===1?'':'s'}</small></span><b>${usd(v.t)}</b></div>`).join('')||'<p class="mut">No sales.</p>'}</div><div class="panel"><b>Busiest hours</b>${topHours.map(([h,v])=>`<div class="row"><span>${String(h).padStart(2,'0')}:00</span><b>${usd(v)}</b></div>`).join('')||'<p class="mut">No data.</p>'}</div>`}
  else{b.innerHTML='<div class="panel"><label>Search receipt / cashier</label><input id="salesSearch" placeholder="Receipt number, cashier, amount..."><div id="rl" style="max-height:56vh;overflow:auto"></div></div>';const drawSales=()=>{const q=$('#salesSearch').value.trim().toLowerCase(),list=ss.slice().sort((a,c)=>c.at-a.at).filter(s=>[lbl(s),s.by,s.total,s.method,s.online?'online '+s.online.orderId:'',new Date(s.at).toLocaleString()].some(v=>String(v||'').toLowerCase().includes(q)));lazy($('#rl'),list,s=>`<button type="button" class="row saleRow" data-sale="${esc(s.id)}" style="width:100%;text-align:left;background:transparent;border:0;color:inherit;cursor:pointer"><span><b>#${esc(lbl(s))}</b>${s.online?' <small style="background:#e0a100;padding:1px 6px;border-radius:99px">ONLINE</small>':''}<br><small class="mut">${esc(s.by||'')} · ${new Date(s.at).toLocaleString()}</small></span><b>${usd(s.total)}</b></button>`,4)};$('#salesSearch').oninput=drawSales;drawSales();$('#rl').onclick=e=>{const row=e.target.closest('[data-sale]');if(!row)return;const s=sales.find(x=>x.id===row.dataset.sale);if(!s)return;modal(`<h3>Receipt #${esc(lbl(s))}</h3><p class="mut">${new Date(s.at).toLocaleString()} · ${esc(s.by||'')} · ${esc(PM[s.method]||s.method)}</p>${s.online?`<div class="onb"><b>ONLINE ORDER ${esc(s.online.orderId)}</b><br>${esc(s.online.name)} · ${esc(s.online.phone)}${s.online.notes?'<br>Note: '+esc(s.online.notes):''}</div>`:''}<div class="panel">${(s.lines||[]).map(l=>`<div class="row"><span>${esc(l.qty)} × ${esc(l.name||by(l.id)?.name||'Item')}</span><b>${usd(l.price||0)}</b></div>`).join('')}${s.fee?`<div class="row"><span>Delivery fee</span><b>${usd(s.fee)}</b></div>`:''}<hr><div class="row"><b>Total</b><b>${usd(s.total)}</b></div></div><button class="btn" id="reprintSale" style="width:100%">Reprint receipt</button>`);$('#reprintSale').onclick=()=>{closeM();queuePrintSale(s)}}}}
 
+/* ================= ONLINE ORDERS =================
+   Flow: the order arrives in the cloud list -> cashier presses Charge -> the order is claimed by this till
+   and loaded into the normal cart -> cashier confirms -> a normal sale is saved (stock deducted, receipt and
+   kitchen ticket printed with the ONLINE tag) and travels through the normal idempotent sync. The cloud then
+   marks the order "being prepared", works out its prep time and flags it ready for drivers at the right moment. */
 let onlineCache=[],onlineTimer=null,onlineModalOpen=false,onlineCfg=false,lastPend=-1,fetchingOnline=false;
 const chargedOnline=()=>{const s=new Set();sales.forEach(x=>{if(x.online&&x.online.orderId)s.add(String(x.online.orderId))});return s};
 function onlineView(){const done=chargedOnline(),inc=[],prep=[];onlineCache.forEach(o=>{if(done.has(o.orderId)){if(o.status==='accepted')prep.push(o)}else if(o.status==='pending')inc.push(o);else if(o.status==='accepted')prep.push(o)});return{inc,prep}}
@@ -995,6 +828,184 @@ $('#onlineBody').addEventListener('click',async e=>{
  }catch(err){if(err.auth)authLost();toast(err.message||'Could not complete the request');btn.disabled=false;fetchOnline()}});
 function startOnlinePolling(){clearInterval(onlineTimer);lastPend=-1;fetchOnline();onlineTimer=setInterval(()=>{if(!document.hidden)fetchOnline()},10000)}
 function stopOnlinePolling(){clearInterval(onlineTimer);onlineTimer=null;onlineCache=[];$('#onlineBadge').hidden=true;closeOnline()}
+
+/* ================= ACCOUNTING (admin only) ================= */
+let accTab='overview',accFrom=Date.now()-7*864e5,accTo=Date.now();
+async function accCall(body){
+ const r=await post({action:'accounting',...body});
+ if(!r||r.ok!==true)throw new Error((r&&r.error)||'Accounting request failed');
+ return r;
+}
+function accRangePicker(){
+ const end=new Date(accTo).toISOString().slice(0,10),start=new Date(accFrom).toISOString().slice(0,10);
+ return `<div class="acc-search"><input type="date" id="accFrom" value="${start}" aria-label="From"><input type="date" id="accTo" value="${end}" aria-label="To"><button class="btn gh" id="accApply">Apply</button></div>`;
+}
+function accBindRange(){
+ const a=$('#accFrom'),b=$('#accTo'),btn=$('#accApply');if(!a||!btn)return;
+ btn.onclick=()=>{accFrom=new Date(a.value+'T00:00:00').getTime();accTo=new Date(b.value+'T23:59:59.999').getTime();accRender()};
+}
+async function accOverview(){
+ $('#accBody').innerHTML='<div class="acc-row-grid" id="accKpi"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>'+accRangePicker()+'<div class="panel"><b>Recent activity</b><div class="mut">Pick a section above for full lists.</div></div>';
+ accBindRange();
+ try{
+  const r=await accCall({sub:'overview',from:accFrom,to:accTo});
+  $('#accKpi').innerHTML=`
+   <div class="acc-card"><h3>Creditors (we owe)</h3><span class="num">${usd(r.creditors.total)}</span><small class="mut">${r.creditors.count} open${r.creditors.overdue?` · <b class="red">${usd(r.creditors.overdue)} overdue</b>`:''}</small></div>
+   <div class="acc-card"><h3>Debtors (owed to us)</h3><span class="num">${usd(r.debtors.total)}</span><small class="mut">${r.debtors.count} open${r.debtors.overdue?` · <b class="red">${usd(r.debtors.overdue)} overdue</b>`:''}</small></div>
+   <div class="acc-card"><h3>Expenses (this range)</h3><span class="num">${usd(r.expenses.total)}</span><small class="mut">${r.expenses.count} entries</small></div>
+   <div class="acc-card"><h3>Quick links</h3><button class="btn gh" data-acc-go="ledger">Open profit report</button></div>`;
+  $('#accBody').addEventListener('click',e=>{const g=e.target.closest('[data-acc-go]');if(g){accTab=g.dataset.accGo;accRender()}},{once:true});
+ }catch(e){$('#accKpi').innerHTML='<div class="acc-card red">'+esc(e.message)+'</div>'}
+}
+function accStatusPill(item){
+ if(item.status==='paid')return '<span class="acc-days">Paid</span>';
+ if(item.status==='overdue')return '<span class="acc-days over">Overdue by '+Math.abs(item.daysLeft)+' day'+(Math.abs(item.daysLeft)===1?'':'s')+'</span>';
+ if(item.daysLeft==null)return '<span class="acc-days">No due date</span>';
+ if(item.daysLeft<=3)return '<span class="acc-days soon">'+item.daysLeft+' day'+(item.daysLeft===1?'':'s')+' left</span>';
+ return '<span class="acc-days">'+item.daysLeft+' days left</span>';
+}
+function accProgress(item){
+ const total=+item.amount||0,paid=+item.paid||0,pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
+ const overdue=item.status==='overdue';
+ return `<div class="acc-pbar ${overdue?'over':''}"><i style="width:${pct}%"></i></div><small class="mut">Paid ${usd(paid)} of ${usd(total)}</small>`;
+}
+function accPartyCard(item,kind){
+ const who=kind==='creditor'?item.supplierName:item.customerName,phone=item.phone||'';
+ return `<div class="acc-card"><div class="hd"><b>${esc(who||'(no name)')}</b>${accStatusPill(item)}</div>
+  <small class="mut">${esc(phone)}${item.ref?' · '+esc(item.ref):''}</small>
+  <div>${esc(item.description||'')}</div>
+  ${accProgress(item)}
+  <div class="row" style="padding:4px 0"><span>Outstanding</span><b>${usd(item.outstanding)}</b></div>
+  <div style="display:flex;gap:6px">
+   <button class="btn gh" data-acc-view="${esc(item.id)}" data-kind="${kind}" style="flex:1">View</button>
+   <button class="btn alt" data-acc-pay="${esc(item.id)}" data-kind="${kind}" style="flex:1" ${item.status==='paid'?'disabled':''}>Record payment</button>
+  </div></div>`;
+}
+async function accCreditors(){
+ $('#accBody').innerHTML=`<div class="acc-search"><input id="accQ" placeholder="Search creditor name, phone or ref..."><button class="btn" id="accNew">+ New credit purchase</button></div><div class="acc-scroll" id="accList"><div class="sk"></div><div class="sk"></div></div>`;
+ const load=async()=>{const q=$('#accQ').value.trim();try{
+  const r=await accCall({sub:'purchases',q,from:0,to:Date.now()});
+  const open=r.purchases.filter(p=>p.status!=='paid');
+  $('#accList').innerHTML=open.length?`<div class="acc-row-grid">${open.slice(0,20).map(p=>accPartyCard(p,'creditor')).join('')}</div>${open.length>20?'<p class="mut">Scroll to see more — refine search to narrow.</p>':''}`:'<p class="mut">No outstanding creditors. Press + to record a new credit purchase.</p>';
+ }catch(e){$('#accList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
+ $('#accQ').oninput=()=>load();$('#accNew').onclick=()=>accPurchaseModal();
+ $('#accList').onclick=e=>{
+  const v=e.target.closest('[data-acc-view]'),p=e.target.closest('[data-acc-pay]');
+  if(v)accViewModal(v.dataset.accView,'creditor');
+  else if(p)accPaymentModal(p.dataset.accPay,'creditor');
+ };
+ load();
+}
+async function accDebtors(){
+ $('#accBody').innerHTML=`<div class="acc-search"><input id="accQ" placeholder="Search debtor name, phone or ref..."><button class="btn" id="accNew">+ New credit invoice</button></div><div class="acc-scroll" id="accList"><div class="sk"></div><div class="sk"></div></div>`;
+ const load=async()=>{const q=$('#accQ').value.trim();try{
+  const r=await accCall({sub:'invoices',q,from:0,to:Date.now()});
+  const open=r.invoices.filter(p=>p.status!=='paid');
+  $('#accList').innerHTML=open.length?`<div class="acc-row-grid">${open.slice(0,20).map(p=>accPartyCard(p,'debtor')).join('')}</div>${open.length>20?'<p class="mut">Refine search to narrow.</p>':''}`:'<p class="mut">No outstanding debtors.</p>';
+ }catch(e){$('#accList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
+ $('#accQ').oninput=()=>load();$('#accNew').onclick=()=>accInvoiceModal();
+ $('#accList').onclick=e=>{
+  const v=e.target.closest('[data-acc-view]'),p=e.target.closest('[data-acc-pay]');
+  if(v)accViewModal(v.dataset.accView,'debtor');
+  else if(p)accPaymentModal(p.dataset.accPay,'debtor');
+ };
+ load();
+}
+async function accViewModal(id,kind){
+ try{
+  const r=await accCall(kind==='creditor'?{sub:'purchases',from:0,to:Date.now(),q:''}:{sub:'invoices',from:0,to:Date.now(),q:''});
+  const list=(kind==='creditor'?r.purchases:r.invoices)||[];
+  const item=list.find(x=>x.id===id);if(!item)return;
+  modal(`<h3>${kind==='creditor'?'Purchase':'Invoice'} ${esc(item.ref||item.id)}</h3>
+   <p class="mut">${esc(kind==='creditor'?item.supplierName:item.customerName)} · ${esc(item.phone||'')}</p>
+   <div class="panel">${accProgress(item)}
+   <div class="row"><span>Amount</span><b>${usd(item.amount)}</b></div>
+   <div class="row"><span>Paid</span><b>${usd(item.paid)}</b></div>
+   <div class="row"><span>Outstanding</span><b>${usd(item.outstanding)}</b></div>
+   <div class="row"><span>Due</span><b>${item.dueAt?new Date(item.dueAt).toLocaleDateString():'—'}</b></div>
+   <div class="row"><span>Created</span><b>${new Date(item.at).toLocaleString()}</b></div>
+   </div>
+   <button class="btn" id="accPay" ${item.status==='paid'?'disabled':''}>Record payment</button>`);
+  $('#accPay').onclick=()=>{closeM();accPaymentModal(id,kind)};
+ }catch(e){toast(e.message)}
+}
+async function accPaymentModal(id,kind){
+ const raw=prompt('How much did you pay?');if(!raw)return;
+ const amount=+raw;if(!(amount>0))return toast('Enter a valid amount');
+ try{const r=await accCall({sub:'savePayment',kind,partyId:'',refId:id,amount,method:'cash',by:me.name});toast('Payment recorded. Paid '+usd(r.newPaid)+' of '+usd(r.total));accRender()}
+ catch(e){toast(e.message)}
+}
+async function accPurchaseModal(){
+ const sup=await accCall({sub:'suppliers'});
+ modal(`<h3>New credit purchase</h3>
+  <label>Supplier</label><select id="apSup">${sup.suppliers.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}${s.phone?' · '+esc(s.phone):''}</option>`).join('')||'<option value="">No suppliers yet</option>'}</select>
+  <button class="btn gh" id="apSupNew" type="button">+ New supplier</button>
+  <label>Reference (invoice no.)</label><input id="apRef" placeholder="e.g. INV-0925">
+  <label>Description</label><input id="apDesc" placeholder="What did you buy?">
+  <label>Amount (USD)</label><input id="apAmt" type="number" step="any" min="0">
+  <label>Due date</label><input id="apDue" type="date">
+  <button class="btn" id="apSave" style="margin-top:10px;width:100%">Save purchase</button>`);
+ const d=new Date();d.setDate(d.getDate()+14);$('#apDue').value=d.toISOString().slice(0,10);
+ $('#apSupNew').onclick=()=>accSupplierModal(true);
+ $('#apSave').onclick=async()=>{try{await accCall({sub:'savePurchase',supplierId:$('#apSup').value,ref:$('#apRef').value,description:$('#apDesc').value,amount:+$('#apAmt').value,dueAt:new Date($('#apDue').value+'T23:59:59').getTime(),by:me.name});closeM();toast('Purchase saved');accRender()}catch(e){toast(e.message)}};
+}
+async function accInvoiceModal(){
+ const cus=await accCall({sub:'customers'});const list=cus.customers||[];
+ modal(`<h3>New credit invoice</h3>
+  <label>Customer</label><select id="aiCus">${list.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')||'<option value="">No customers yet</option>'}</select>
+  <button class="btn gh" id="aiNewCus" type="button">+ New customer</button>
+  <label>Reference</label><input id="aiRef" placeholder="e.g. INV-0001">
+  <label>Description</label><input id="aiDesc" placeholder="What was sold on credit?">
+  <label>Amount (USD)</label><input id="aiAmt" type="number" step="any" min="0">
+  <label>Due date</label><input id="aiDue" type="date">
+  <button class="btn" id="aiSave" style="margin-top:10px;width:100%">Save invoice</button>`);
+ const d=new Date();d.setDate(d.getDate()+7);$('#aiDue').value=d.toISOString().slice(0,10);
+ $('#aiNewCus').onclick=()=>accCustomerModal(true);
+ $('#aiSave').onclick=async()=>{try{await accCall({sub:'saveInvoice',customerId:$('#aiCus').value,ref:$('#aiRef').value,description:$('#aiDesc').value,amount:+$('#aiAmt').value,dueAt:new Date($('#aiDue').value+'T23:59:59').getTime(),by:me.name});closeM();toast('Invoice saved');accRender()}catch(e){toast(e.message)}};
+}
+async function accSupplierModal(thenBack){
+ modal(`<h3>New supplier</h3><label>Name</label><input id="asN"><label>Phone</label><input id="asP" inputmode="tel"><label>Address</label><input id="asA"><button class="btn" id="asS" style="width:100%;margin-top:10px">Save supplier</button>`);
+ $('#asS').onclick=async()=>{try{const r=await accCall({sub:'saveSupplier',name:$('#asN').value,phone:$('#asP').value,address:$('#asA').value});toast('Supplier saved');if(thenBack){const sup=await accCall({sub:'suppliers'});const sel=$('#apSup');if(sel){sel.innerHTML=sup.suppliers.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}${s.phone?' · '+esc(s.phone):''}</option>`).join('');sel.value=r.supplier.id}}else{closeM();accRender()}}catch(e){toast(e.message)}};
+}
+async function accCustomerModal(thenBack){
+ modal(`<h3>New customer</h3><label>Name</label><input id="acN"><label>Phone</label><input id="acP" inputmode="tel"><label>Address</label><input id="acA"><button class="btn" id="acS" style="width:100%;margin-top:10px">Save customer</button>`);
+ $('#acS').onclick=async()=>{try{const r=await accCall({sub:'saveCustomer',name:$('#acN').value,phone:$('#acP').value,address:$('#acA').value});toast('Customer saved');if(thenBack){const cus=await accCall({sub:'customers'});const sel=$('#aiCus');if(sel){sel.innerHTML=cus.customers.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('');sel.value=r.customer.id}}else{closeM();accRender()}}catch(e){toast(e.message)}};
+}
+async function accLedger(){
+ $('#accBody').innerHTML=`<div class="panel"><b>Profit report</b>${accRangePicker()}<div id="accReport"><div class="sk"></div></div></div>
+  <div class="panel"><b>Expenses</b><div class="acc-search"><input id="accExpQ" placeholder="Search description or category..."><button class="btn" id="accExpNew">+ Add expense</button></div><div class="acc-scroll" id="accExpList"><div class="sk"></div></div></div>`;
+ accBindRange();
+ const load=async()=>{try{
+  const r=await accCall({sub:'profitReport',from:accFrom,to:accTo});
+  const t=r.totals;
+  $('#accReport').innerHTML=`
+   <div class="kpi"><div>Orders<b>${t.orders}</b></div><div>Revenue<b>${usd(t.revenue)}</b></div><div>Cost<b>${usd(t.cost)}</b></div><div>Gross profit<b>${usd(t.grossProfit)}</b></div><div>Expenses<b>${usd(t.expenses)}</b></div><div>Net profit<b>${usd(t.netProfit)}</b></div></div>
+   <div class="acc-row-grid">${r.expenseByCategory.map(c=>`<div class="acc-card"><h3>${esc(c.category)}</h3><span class="num">${usd(c.amount)}</span></div>`).join('')||'<div class="acc-card mut">No expenses in this range.</div>'}</div>
+   <button class="btn alt" id="accExport" style="margin-top:10px">Export profit summary (CSV)</button>`;
+  $('#accExport').onclick=async()=>{try{const ex=await accCall({sub:'exportProfit',from:accFrom,to:accTo});downloadText(ex.filename,ex.csv);toast('Export ready')}catch(e){toast(e.message)}};
+ }catch(e){$('#accReport').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
+ const loadExp=async()=>{const q=$('#accExpQ').value.trim();try{
+  const r=await accCall({sub:'expenses',from:accFrom,to:accTo,q});
+  $('#accExpList').innerHTML=r.expenses.length?`<div class="acc-row-grid">${r.expenses.slice(0,20).map(e=>`<div class="acc-card"><div class="hd"><b>${esc(e.category)}</b><small class="mut">${new Date(e.at).toLocaleDateString()}</small></div><div>${esc(e.description)}</div><div class="row"><span>Amount</span><b>${usd(e.amount)}</b></div><button class="btn gh" data-acc-exp-del="${esc(e.id)}">Delete</button></div>`).join('')}</div>`:'<p class="mut">No expenses in this range.</p>';
+  $('#accExpList').onclick=async ev=>{const b=ev.target.closest('[data-acc-exp-del]');if(!b)return;if(!confirm('Delete this expense?'))return;try{await accCall({sub:'deleteExpense',id:b.dataset.accExpDel});toast('Deleted');load();loadExp()}catch(e){toast(e.message)}};
+ }catch(e){$('#accExpList').innerHTML='<p class="red">'+esc(e.message)+'</p>'}};
+ $('#accExpQ').oninput=()=>loadExp();
+ $('#accExpNew').onclick=()=>accExpenseModal();
+ await Promise.all([load(),loadExp()]);
+}
+async function accExpenseModal(){
+ modal(`<h3>Add expense</h3><label>Category</label><input id="aeC" value="General"><label>Description</label><input id="aeD"><label>Amount (USD)</label><input id="aeA" type="number" step="any" min="0"><label>Date</label><input id="aeT" type="date" value="${new Date().toISOString().slice(0,10)}"><button class="btn" id="aeS" style="margin-top:10px;width:100%">Save expense</button>`);
+ $('#aeS').onclick=async()=>{try{await accCall({sub:'saveExpense',category:$('#aeC').value,description:$('#aeD').value,amount:+$('#aeA').value,at:new Date($('#aeT').value+'T12:00:00').getTime(),by:me.name});closeM();toast('Expense added');accLedger()}catch(e){toast(e.message)}};
+}
+function accRender(){
+ if(!me||me.role!=='admin'){$('#accBody').innerHTML='<p class="mut">Accounting is admin only.</p>';return}
+ document.querySelectorAll('#accTabs button').forEach(b=>b.classList.toggle('on',b.dataset.at===accTab));
+ if(accTab==='overview')return accOverview();
+ if(accTab==='creditors')return accCreditors();
+ if(accTab==='debtors')return accDebtors();
+ if(accTab==='ledger')return accLedger();
+}
+$('#accTabs').onclick=e=>{if(e.target.dataset.at){accTab=e.target.dataset.at;accRender()}};
 
 (async()=>{$('#menu').innerHTML='<div class="sk"></div><div class="sk"></div><div class="sk"></div>';
  try{db=await open()}catch(e){document.body.innerHTML='<p style="padding:20px">This browser cannot store data on this device ('+esc(e.message)+'). Close private/incognito mode and reload.</p>';return}
