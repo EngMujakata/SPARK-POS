@@ -126,7 +126,7 @@ const UNITS={kg:['g',1000],g:['g',1],l:['ml',1000],ml:['ml',1],each:['each',1]},
 const PM={...METHODS,online:'Paid online',credit:'Credit (invoice)'}; // METHODS = money counted at cash-up; PM adds online + credit (never counted in the drawer)
 let me=null,users=[],PP='80mm',db,items=[],moves=[],sales=[],shifts=[],shift=null,S={biz:'spark',rate:32,vat:0,vatp:15,paper:'80mm',logo:'',posPrinter:'',kitPrinter:''},stock={},cart=[],busy=false,rec=[],OC=null; // OC = online order currently loaded in the cart
 let PRN={list:[],pos:'',kit:''},DEV=null,AUTH=null,SY={c:{},seq:0},SB=null,pendRows=0,rejList=[],syncing=false,polling=false,lastSynced=false;
-let NET='ONLINE',tryCount=0;const MAX_TRIES=3,TRY_TIMEOUT=8000;
+let NET='ONLINE',tryCount=0;const MAX_TRIES=3,TRY_TIMEOUT=25000;
 function setNet(s){ if(NET===s) return; NET=s; renderNetBadge(); }
 const open=()=>new Promise((ok,no)=>{const r=indexedDB.open('spark2',3);r.onupgradeneeded=()=>{const d=r.result;['items','moves','sales','shifts','outbox','users','printqueue'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})});if(!d.objectStoreNames.contains('meta'))d.createObjectStore('meta',{keyPath:'k'})};r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const all=n=>new Promise(r=>{const q=db.transaction(n).objectStore(n).getAll();q.onsuccess=()=>r(q.result)});
@@ -145,7 +145,7 @@ async function cloud(id){lastSynced=false;if(!CLOUD)return;if(!navigator.onLine|
  loader(true);let done=false;
  const isDone=()=>new Promise(r=>{const q=db.transaction('outbox').objectStore('outbox').get(id);q.onsuccess=()=>r(!q.result||q.result.status==='synced');q.onerror=()=>r(false)});
  const work=(async()=>{for(let i=0;i<3&&!done;i++){await syncAll();done=await isDone();if(!done)await sleep(700*(i+1))}})();
- await Promise.race([work,sleep(12000)]);loader(false);lastSynced=done;if(!done){devNote=Date.now();toast('Saved on this device. The cloud will keep retrying.')}}
+ await Promise.race([work,sleep(20000)]);loader(false);lastSynced=done;if(!done){devNote=Date.now();toast('Saved on this device. The cloud will keep retrying.')}}
 let ldN=0;const loader=on=>{ldN=Math.max(0,ldN+(on?1:-1));$('#ld').classList.toggle('on',ldN>0)};const toast=m=>{const t=$('#toast');if(Date.now()-devNote<2500&&!/device/i.test(m))m+=' | saved on this device, will sync when the cloud is reachable';t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',3600)};
 const modal=(h,c,lock)=>{$('#mb').innerHTML=h;$('#modal').classList.toggle('ctr',!!c);$('#modal').classList.toggle('lock',!!lock);$('#modal').classList.add('on')},closeM=()=>$('#modal').classList.remove('on');
 $('#modal').onclick=e=>{if(e.target.id==='modal'&&!$('#modal').classList.contains('lock'))closeM()};
@@ -574,7 +574,8 @@ function progress(done,total,msg){const p=$('#sp');if(done===null){p.style.displ
 
 async function post(o){
  if(!navigator.onLine){const e=new Error('Offline');e.network=true;throw e}
- const c=new AbortController(),t=setTimeout(()=>c.abort(),o.action==='onlineOrders'?20000:TRY_TIMEOUT);
+ const timeout = o.action==='accounting' ? 30000 : (o.action==='onlineOrders' ? 20000 : TRY_TIMEOUT);
+ const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);
  try{
   const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:API_KEY,token:AUTH?AUTH.token:'',...o}),signal:c.signal,redirect:'follow'});
   let r;try{r=await response.json()}catch(_){const e=new Error('Cloud returned an invalid response. Check the deployed /exec URL and deployment version.');e.network=true;throw e}
@@ -586,7 +587,9 @@ async function post(o){
   }
   if(r.token&&AUTH){AUTH={...AUTH,token:r.token};write([['meta',{k:'auth',v:AUTH},false]]).catch(()=>{})}
   return r;
- }catch(e){if(!e.network&&!e.server&&!e.auth&&!e.conflict)e.network=true;throw e}
+ }catch(e){
+  if(e.name==='AbortError'){const er=new Error('Cloud took too long to respond. It will retry automatically.');er.network=true;throw er}
+  if(!e.network&&!e.server&&!e.auth&&!e.conflict)e.network=true;throw e}
  finally{clearTimeout(t)}
 }
 function authLost(){if(!AUTH)return;AUTH=null;write([['meta',{k:'auth',v:null},false]]).catch(()=>{});pending();toast('Your cloud session ended. Sales stay safe on this PC. Sign out and sign in again (online) to keep syncing.')}
@@ -774,11 +777,7 @@ async function loadRep(t){const b=$('#rb');b.innerHTML='<div class="sk"></div><d
   b.innerHTML=`<div class="kpi"><div>Cashiers<b>${rows.length}</b></div><div>Orders<b>${ss.length}</b></div><div>Top cashier<b>${rows[0]?esc(rows[0][0]):'—'}</b></div></div><div class="panel"><b>By cashier</b>${rows.map(([n,v])=>`<div class="row"><span><b>${esc(n)}</b><br><small class="mut">${v.n} orders · ${v.sh.size} shift${v.sh.size===1?'':'s'}</small></span><b>${usd(v.t)}</b></div>`).join('')||'<p class="mut">No sales.</p>'}</div><div class="panel"><b>Busiest hours</b>${topHours.map(([h,v])=>`<div class="row"><span>${String(h).padStart(2,'0')}:00</span><b>${usd(v)}</b></div>`).join('')||'<p class="mut">No data.</p>'}</div>`}
  else{b.innerHTML='<div class="panel"><label>Search receipt / cashier</label><input id="salesSearch" placeholder="Receipt number, cashier, amount..."><div id="rl" style="max-height:56vh;overflow:auto"></div></div>';const drawSales=()=>{const q=$('#salesSearch').value.trim().toLowerCase(),list=ss.slice().sort((a,c)=>c.at-a.at).filter(s=>[lbl(s),s.by,s.total,s.method,s.online?'online '+s.online.orderId:'',new Date(s.at).toLocaleString()].some(v=>String(v||'').toLowerCase().includes(q)));lazy($('#rl'),list,s=>`<button type="button" class="row saleRow" data-sale="${esc(s.id)}" style="width:100%;text-align:left;background:transparent;border:0;color:inherit;cursor:pointer"><span><b>#${esc(lbl(s))}</b>${s.online?' <small style="background:#e0a100;padding:1px 6px;border-radius:99px">ONLINE</small>':''}<br><small class="mut">${esc(s.by||'')} · ${new Date(s.at).toLocaleString()}</small></span><b>${usd(s.total)}</b></button>`,4)};$('#salesSearch').oninput=drawSales;drawSales();$('#rl').onclick=e=>{const row=e.target.closest('[data-sale]');if(!row)return;const s=sales.find(x=>x.id===row.dataset.sale);if(!s)return;modal(`<h3>Receipt #${esc(lbl(s))}</h3><p class="mut">${new Date(s.at).toLocaleString()} · ${esc(s.by||'')} · ${esc(PM[s.method]||s.method)}</p>${s.online?`<div class="onb"><b>ONLINE ORDER ${esc(s.online.orderId)}</b><br>${esc(s.online.name)} · ${esc(s.online.phone)}${s.online.notes?'<br>Note: '+esc(s.online.notes):''}</div>`:''}<div class="panel">${(s.lines||[]).map(l=>`<div class="row"><span>${esc(l.qty)} × ${esc(l.name||by(l.id)?.name||'Item')}</span><b>${usd(l.price||0)}</b></div>`).join('')}${s.fee?`<div class="row"><span>Delivery fee</span><b>${usd(s.fee)}</b></div>`:''}<hr><div class="row"><b>Total</b><b>${usd(s.total)}</b></div></div><button class="btn" id="reprintSale" style="width:100%">Reprint receipt</button>`);$('#reprintSale').onclick=()=>{closeM();queuePrintSale(s)}}}}
 
-/* ================= ONLINE ORDERS =================
-   Flow: the order arrives in the cloud list -> cashier presses Charge -> the order is claimed by this till
-   and loaded into the normal cart -> cashier confirms -> a normal sale is saved (stock deducted, receipt and
-   kitchen ticket printed with the ONLINE tag) and travels through the normal idempotent sync. The cloud then
-   marks the order "being prepared", works out its prep time and flags it ready for drivers at the right moment. */
+/* ================= ONLINE ORDERS ================= */
 let onlineCache=[],onlineTimer=null,onlineModalOpen=false,onlineCfg=false,lastPend=-1,fetchingOnline=false;
 const chargedOnline=()=>{const s=new Set();sales.forEach(x=>{if(x.online&&x.online.orderId)s.add(String(x.online.orderId))});return s};
 function onlineView(){const done=chargedOnline(),inc=[],prep=[];onlineCache.forEach(o=>{if(done.has(o.orderId)){if(o.status==='accepted')prep.push(o)}else if(o.status==='pending')inc.push(o);else if(o.status==='accepted')prep.push(o)});return{inc,prep}}
@@ -1014,4 +1013,6 @@ $('#accTabs').onclick=e=>{if(e.target.dataset.at){accTab=e.target.dataset.at;acc
  const mt=await all('meta'),saved=(mt.find(x=>x.k==='activeUser')||{}).v;const sid=sessionStorage.me||saved;me=users.find(u=>u.id===sid&&u.active!==false)||null;if(me&&AUTH&&AUTH.uid!==me.id)AUTH=null;if(!me&&AUTH){AUTH=null;write([['meta',{k:'auth',v:null},false]]).catch(()=>{})}
  pending();me?enter():loginUI();
  if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js').catch(()=>{});setTimeout(ask,1500)})();
-</script></body></html>
+</script>
+
+</body></html>
