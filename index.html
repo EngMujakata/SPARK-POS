@@ -107,7 +107,7 @@ footer{text-align:center;padding:12px;font-size:12px;color:var(--mut)}
   </div>
   <div id="accBody"><div class="sk"></div><div class="sk"></div></div>
 </section>
-</main><footer>spark powered by Electrify Technologies</footer>
+</main><footer>SPARK POS</footer>
 <div id="sp"><b id="spT">Uploading...</b><div class="bar"><i id="spB"></i></div><small class="mut" id="spM"></small></div>
 <div id="ld"><div class="dots"><i></i><i></i><i></i></div></div><div id="modal"><div id="mb"></div></div><div id="toast"></div>
 <div id="onlineModal"><div style="background:#fff;border-radius:16px;width:min(560px,100%);max-height:90vh;overflow:auto;padding:18px"><div class="hd"><b style="font-size:18px">Online orders</b><button class="btn gh" id="onlineClose" style="padding:4px 10px">Close</button></div><div id="onlineBody"></div></div></div>
@@ -247,7 +247,7 @@ const page=()=>PP==='A4'?'@page{size:A4;margin:15mm}body{width:100%}':PP==='58mm
 const doc=b=>`<!doctype html><meta charset=utf-8><style>${page()}body{font:12px/1.35 monospace;color:#000}.r{display:flex;justify-content:space-between}hr{border:0;border-top:1px dashed #000}.c{text-align:center}img{max-height:50px}.tg{border:2px solid #000;padding:3px;margin:4px 0;text-align:center;font-weight:bold}</style>${b}`;
 const onlineHtml=s=>s.online?`<div class=tg>*** ONLINE ORDER ***<br>${s.online.type==='delivery'?'DELIVERY':'TAKE AWAY'} ${esc(s.online.orderId)}</div><div>${esc(s.online.name)} ${esc(s.online.phone)}</div>${s.online.address?`<div>${esc(s.online.address)}</div>`:''}${s.online.notes?`<div><b>Note:</b> ${esc(s.online.notes)}</div>`:''}`:'';
 function receiptHtml(s){const d=new Date(s.at).toLocaleString(),L=s.lines,no=lbl(s);
- return doc(`<div class=c>${S.logo?`<img src="${S.logo}"><br>`:''}<b>${esc(S.biz)}</b><br>${S.receiptHeader?esc(S.receiptHeader)+'<br>':''}Order #${esc(no)}<br>${d}${S.receiptShowCashier!==false?'<br>Cashier: '+esc(s.by||''):''}</div>${onlineHtml(s)}<hr>${L.map(l=>`<div class=r><span>${l.qty} ${esc(l.name)}</span><span>${(l.price).toFixed(2)}</span></div>${l.starchName?`<div>  + ${esc(l.starchName)}</div>`:''}${(l.extraNames||[]).map(x=>`<div>  + ${esc(x)}</div>`).join('')}`).join('')}<hr><div class=r><span>Subtotal</span><span>${s.sub.toFixed(2)}</span></div>${s.fee?`<div class=r><span>Delivery fee</span><span>${(+s.fee).toFixed(2)}</span></div>`:''}${s.vat?`<div class=r><span>VAT ${S.vatp}%</span><span>${s.vat.toFixed(2)}</span></div>`:''}<div class=r><b>TOTAL USD</b><b>${s.total.toFixed(2)}</b></div>${s.cur==='ZiG'?`<div class=r><span>Paid ZiG @${s.rate}</span><span>${(s.total*s.rate).toFixed(2)}</span></div>`:''}<div>Paid by ${PM[s.method]||s.method}</div><hr><div class=c>${esc(S.receiptFooter||'Thank you!')}<br>spark powered by Electrify Technologies</div>`)}
+ return doc(`<div class=c>${S.logo?`<img src="${S.logo}"><br>`:''}<b>${esc(S.biz)}</b><br>${S.receiptHeader?esc(S.receiptHeader)+'<br>':''}Order #${esc(no)}<br>${d}${S.receiptShowCashier!==false?'<br>Cashier: '+esc(s.by||''):''}</div>${onlineHtml(s)}<hr>${L.map(l=>`<div class=r><span>${l.qty} ${esc(l.name)}</span><span>${(l.price).toFixed(2)}</span></div>${l.starchName?`<div>  + ${esc(l.starchName)}</div>`:''}${(l.extraNames||[]).map(x=>`<div>  + ${esc(x)}</div>`).join('')}`).join('')}<hr><div class=r><span>Subtotal</span><span>${s.sub.toFixed(2)}</span></div>${s.fee?`<div class=r><span>Delivery fee</span><span>${(+s.fee).toFixed(2)}</span></div>`:''}${s.vat?`<div class=r><span>VAT ${S.vatp}%</span><span>${s.vat.toFixed(2)}</span></div>`:''}<div class=r><b>TOTAL USD</b><b>${s.total.toFixed(2)}</b></div>${s.cur==='ZiG'?`<div class=r><span>Paid ZiG @${s.rate}</span><span>${(s.total*s.rate).toFixed(2)}</span></div>`:''}<div>Paid by ${PM[s.method]||s.method}</div><hr><div class=c>${esc(S.receiptFooter||'Thank you!')}<br>SPARK POS</div>`)}
 function kitchenHtml(s){const d=new Date(s.at).toLocaleString(),L=s.lines,no=lbl(s);
  return doc(`<div class=c><b style="font-size:32px">#${esc(no)}</b><br>KITCHEN ${d}</div>${s.online?`<div class=tg>*** ONLINE ${s.online.type==='delivery'?'DELIVERY':'TAKE AWAY'} ***<br>${esc(s.online.name)}</div>`:''}<hr>${L.map(l=>`<div><b>${l.qty} x ${esc(l.name)}</b></div>${l.starchName?`<div>  + ${esc(l.starchName)}</div>`:''}${(l.extraNames||[]).map(x=>`<div>  + ${esc(x)}</div>`).join('')}`).join('')}${s.online&&s.online.notes?`<hr><div><b>NOTE: ${esc(s.online.notes)}</b></div>`:''}`)}
 
@@ -291,7 +291,7 @@ async function receiptEsc(s,pw){const P=escp(paperW(pw)),d=new Date(s.at).toLoca
  P.hr().lr('Subtotal',s.sub.toFixed(2));if(s.fee)P.lr('Delivery fee',(+s.fee).toFixed(2));if(s.vat)P.lr('VAT '+S.vatp+'%',s.vat.toFixed(2));
  P.bold(true).lr('TOTAL USD',s.total.toFixed(2)).bold(false);
  if(s.cur==='ZiG')P.lr('Paid ZiG @'+s.rate,(s.total*s.rate).toFixed(2));
- P.ln('Paid by '+(PM[s.method]||s.method)).hr().align('c').ln('Thank you!').ln('spark powered by Electrify Technologies').feed(4).cut();
+ P.ln('Paid by '+(PM[s.method]||s.method)).hr().align('c').ln('Thank you!').ln('SPARK POS').feed(4).cut();
  return P.bytes()}
 function kitchenEsc(s,pw){const P=escp(paperW(pw)),d=new Date(s.at).toLocaleString();
  P.init().align('c').big(true).bold(true).ln('#'+lbl(s)).big(false).bold(false).ln('KITCHEN '+d);
